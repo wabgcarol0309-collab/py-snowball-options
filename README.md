@@ -28,10 +28,16 @@ where $dW_t^S dW_t^v = \rho dt$. The negative correlation $\rho$ is crucial for 
 ## 🏗️ Project Architecture
 
 ```text
+
 py-snowball-options/
 ├── core/
-│   ├── models.py      # Abstract BaseModel, GBM, and Heston implementations
-│   ├── payoff.py      # Snowball contract dataclass and payoff vectorization
-│   └── engine.py      # Polymorphic Monte Carlo pricer
-├── main_pricing.py    # Pricing execution and model comparison script
-└── plot_paths.py      # SDE trajectory visualization
+│   ├── models.py      # Abstract BaseModel, GBM, Heston, and LocalVol implementations
+│   ├── sde.py         # Stochastic Differential Equation solvers (Euler-Maruyama)
+│   ├── payoff.py      # Logic-gated vectorized payoff for KI/KO events
+│   └── engine.py      # Model-agnostic Monte Carlo Pricing Engine
+├── utils/
+│   ├── data_loader.py # AKShare wrappers for live Indices & Risk-free rates
+│   └── greeks.py      # Finite Difference Greek calculators
+├── images/            # Visualizations (Gamma surface, MC paths)
+├── main_pricing.py    # Multi-model benchmarking script (Main Entry)
+└── plot_risk_surface.py # 3D Risk Profiling script
