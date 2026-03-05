@@ -45,7 +45,7 @@ py-snowball-options/
 ## 🚀 快速开始
 **克隆项目并进入目录**:
    ```bash
-   git clone [https://github.com/你的用户名/py-snowball-options.git](https://github.com/你的用户名/py-snowball-options.git)
+   git clone [https://github.com/wabgcarol0309/py-snowball-options.git](https://github.com/wabgcarol0309/py-snowball-options.git)
    cd py-snowball-options
 
 
