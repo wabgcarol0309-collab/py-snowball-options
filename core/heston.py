@@ -1,60 +1,216 @@
 import numpy as np
 
-def generate_heston_paths(S0: float, v0: float, r: float, q: float, 
-                          kappa: float, theta: float, sigma_v: float, rho: float,
-                          T: float, n_steps: int, n_paths: int, 
-                          seed: int = None) -> np.ndarray:
+
+def generate_heston_paths(
+    S0: float,
+    v0: float,
+    r: float,
+    q: float,
+    kappa: float,
+    theta: float,
+    sigma_v: float,
+    rho: float,
+    T: float,
+    n_steps: int,
+    n_paths: int,
+    seed: int = None,
+) -> np.ndarray:
     """
-    使用 Euler-Maruyama 全截断方案 (Full Truncation) 生成 Heston 模型价格路径。
-    
-    参数:
-    S0      : 初始标的价格
-    v0      : 初始方差 (注意是方差不是波动率)
-    kappa   : 均值回归速度
-    theta   : 长期平均方差
-    sigma_v : 波动率的波动率 (vol-of-vol)
-    rho     : 价格与方差的布朗运动相关系数
+    Generate asset price paths under the Heston stochastic volatility model
+    using the risk-neutral measure.
+
+    Dynamics:
+        dS_t = (r - q) S_t dt + sqrt(v_t) S_t dW_1
+        dv_t = kappa (theta - v_t) dt + sigma_v sqrt(v_t) dW_2
+        corr(dW_1, dW_2) = rho
+
+    Numerical scheme:
+        - Variance: Full Truncation Euler
+        - Asset price: Log-Euler
+
+    Parameters
+    ----------
+    S0 : float
+        Initial spot price.
+    v0 : float
+        Initial variance.
+    r : float
+        Risk-free rate.
+    q : float
+        Dividend yield / carry rate.
+    kappa : float
+        Mean reversion speed of variance.
+    theta : float
+        Long-run variance level.
+    sigma_v : float
+        Volatility of variance ("vol of vol").
+    rho : float
+        Correlation between spot and variance shocks.
+    T : float
+        Maturity in years.
+    n_steps : int
+        Number of time steps.
+    n_paths : int
+        Number of Monte Carlo paths.
+    seed : int, optional
+        Random seed.
+
+    Returns
+    -------
+    np.ndarray
+        Simulated price paths with shape (n_paths, n_steps + 1).
     """
-    if seed is not None:
-        np.random.seed(seed)
-        
+    _validate_heston_inputs(
+        S0=S0,
+        v0=v0,
+        kappa=kappa,
+        theta=theta,
+        sigma_v=sigma_v,
+        rho=rho,
+        T=T,
+        n_steps=n_steps,
+        n_paths=n_paths,
+    )
+
+    rng = np.random.default_rng(seed)
+
     dt = T / n_steps
-    
-    # 1. 生成两组独立的标准正态随机数矩阵
-    Z1 = np.random.standard_normal((n_steps, n_paths))
-    Z2 = np.random.standard_normal((n_steps, n_paths))
-    
-    # 2. 通过 Cholesky 分解构造相关的布朗运动增量
-    # Z_S 用于价格路径，Z_v 用于方差路径
-    Z_S = Z1
-    Z_v = rho * Z1 + np.sqrt(1 - rho**2) * Z2
-    
-    # 3. 预分配内存
-    S_paths = np.zeros((n_steps + 1, n_paths))
-    v_paths = np.zeros((n_steps + 1, n_paths))
-    
-    S_paths[0] = S0
-    v_paths[0] = v0
-    
-    # 4. 时间步迭代 (Heston 模型由于方差依赖前一步状态，无法像 GBM 那样完全消除时间轴循环)
-    # 但我们仍然在路径维度 (n_paths) 上保持了纯向量化
+    sqrt_dt = np.sqrt(dt)
+    rho_scale = np.sqrt(1.0 - rho * rho)
+
+    # log-price and variance
+    logS = np.empty((n_paths, n_steps + 1), dtype=np.float64)
+    v = np.empty((n_paths, n_steps + 1), dtype=np.float64)
+
+    logS[:, 0] = np.log(S0)
+    v[:, 0] = v0
+
+    # Pre-generate random numbers for vectorized simulation
+    z1 = rng.standard_normal((n_paths, n_steps))
+    z2 = rng.standard_normal((n_paths, n_steps))
+
     for t in range(n_steps):
-        # 当前方差
-        v_t = v_paths[t]
-        
-        # 全截断处理 (Full Truncation)：将负方差视为 0 参与后续计算
-        v_t_plus = np.maximum(v_t, 0.0)
-        
-        # 计算下一步的方差 (Euler-Maruyama 离散化)
-        # dv_t = kappa * (theta - v_t_plus) * dt + sigma_v * sqrt(v_t_plus) * sqrt(dt) * Z_v
-        v_paths[t+1] = v_t + kappa * (theta - v_t_plus) * dt + \
-                       sigma_v * np.sqrt(v_t_plus) * np.sqrt(dt) * Z_v[t]
-        
-        # 计算下一步的对数价格并转回价格
-        # 使用对数价格离散化更稳定：d(lnS_t) = (r - q - 0.5 * v_t_plus) * dt + sqrt(v_t_plus) * dW_t^S
-        log_S_next = np.log(S_paths[t]) + (r - q - 0.5 * v_t_plus) * dt + \
-                     np.sqrt(v_t_plus) * np.sqrt(dt) * Z_S[t]
-                     
-        S_paths[t+1] = np.exp(log_S_next)
-        
-    return S_paths # 如果需要，也可以把 v_paths 一起返回用于波动率分析
+        w1 = z1[:, t]
+        w2 = rho * z1[:, t] + rho_scale * z2[:, t]
+
+        v_pos = np.maximum(v[:, t], 0.0)
+
+        # Full truncation Euler for variance
+        v_next = (
+            v[:, t]
+            + kappa * (theta - v_pos) * dt
+            + sigma_v * np.sqrt(v_pos) * sqrt_dt * w2
+        )
+        v[:, t + 1] = np.maximum(v_next, 0.0)
+
+        # Log-Euler for asset price under risk-neutral measure
+        logS[:, t + 1] = (
+            logS[:, t]
+            + (r - q - 0.5 * v_pos) * dt
+            + np.sqrt(v_pos) * sqrt_dt * w1
+        )
+
+    return np.exp(logS)
+
+
+def generate_heston_paths_with_variance(
+    S0: float,
+    v0: float,
+    r: float,
+    q: float,
+    kappa: float,
+    theta: float,
+    sigma_v: float,
+    rho: float,
+    T: float,
+    n_steps: int,
+    n_paths: int,
+    seed: int = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Generate both price paths and variance paths.
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray]
+        prices: shape (n_paths, n_steps + 1)
+        variances: shape (n_paths, n_steps + 1)
+    """
+    _validate_heston_inputs(
+        S0=S0,
+        v0=v0,
+        kappa=kappa,
+        theta=theta,
+        sigma_v=sigma_v,
+        rho=rho,
+        T=T,
+        n_steps=n_steps,
+        n_paths=n_paths,
+    )
+
+    rng = np.random.default_rng(seed)
+
+    dt = T / n_steps
+    sqrt_dt = np.sqrt(dt)
+    rho_scale = np.sqrt(1.0 - rho * rho)
+
+    logS = np.empty((n_paths, n_steps + 1), dtype=np.float64)
+    v = np.empty((n_paths, n_steps + 1), dtype=np.float64)
+
+    logS[:, 0] = np.log(S0)
+    v[:, 0] = v0
+
+    z1 = rng.standard_normal((n_paths, n_steps))
+    z2 = rng.standard_normal((n_paths, n_steps))
+
+    for t in range(n_steps):
+        w1 = z1[:, t]
+        w2 = rho * z1[:, t] + rho_scale * z2[:, t]
+
+        v_pos = np.maximum(v[:, t], 0.0)
+
+        v_next = (
+            v[:, t]
+            + kappa * (theta - v_pos) * dt
+            + sigma_v * np.sqrt(v_pos) * sqrt_dt * w2
+        )
+        v[:, t + 1] = np.maximum(v_next, 0.0)
+
+        logS[:, t + 1] = (
+            logS[:, t]
+            + (r - q - 0.5 * v_pos) * dt
+            + np.sqrt(v_pos) * sqrt_dt * w1
+        )
+
+    return np.exp(logS), v
+
+
+def _validate_heston_inputs(
+    S0: float,
+    v0: float,
+    kappa: float,
+    theta: float,
+    sigma_v: float,
+    rho: float,
+    T: float,
+    n_steps: int,
+    n_paths: int,
+) -> None:
+    if S0 <= 0:
+        raise ValueError("S0 must be positive.")
+    if v0 < 0:
+        raise ValueError("v0 must be non-negative.")
+    if kappa <= 0:
+        raise ValueError("kappa must be positive.")
+    if theta < 0:
+        raise ValueError("theta must be non-negative.")
+    if sigma_v < 0:
+        raise ValueError("sigma_v must be non-negative.")
+    if not (-1.0 <= rho <= 1.0):
+        raise ValueError("rho must be between -1 and 1.")
+    if T <= 0:
+        raise ValueError("T must be positive.")
+    if n_steps <= 0:
+        raise ValueError("n_steps must be positive.")
+    if n_paths <= 0:
+        raise ValueError("n_paths must be positive.")
