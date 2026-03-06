@@ -17,7 +17,7 @@ This project demonstrates quantitative modeling capabilities, focusing on vector
 
 ## 🧮 Mathematical Framework
 
-### 1. The Heston Model Dynamics
+###  The Heston Model Dynamics
 Under the risk-neutral measure $\mathbb{Q}$, the underlying asset $S_t$ and its variance $v_t$ are simulated as:
 
 $$dS_t = (r - q) S_t dt + \sqrt{v_t} S_t dW_t^S$$
@@ -36,7 +36,7 @@ py-snowball-options/
 │   ├── payoff.py      # Logic-gated vectorized payoff for KI/KO events
 │   └── engine.py      # Model-agnostic Monte Carlo Pricing Engine
 ├── utils/
-│   ├── data_loader.py # AKShare wrappers for live Indices & Risk-free rates
+│   ├── data_loader_us.py # yfinancee wrappers for live Indices & Risk-free rates
 │   └── greeks.py      # Finite Difference Greek calculators
 ├── images/            # Visualizations (Gamma surface, MC paths)
 ├── main_pricing.py    # Multi-model benchmarking script (Main Entry)
