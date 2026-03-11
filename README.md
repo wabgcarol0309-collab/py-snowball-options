@@ -42,8 +42,7 @@ py-snowball-options/
 ├── main_pricing.py    # Multi-model benchmarking script (Main Entry)
 └── plot_risk_surface.py # 3D Risk Profiling script
 ```
-## 🚀 快速开始
-**克隆项目并进入目录**:
+## 🚀 Start
    ```bash
    git clone [https://github.com/wabgcarol0309/py-snowball-options.git](https://github.com/wabgcarol0309/py-snowball-options.git)
    cd py-snowball-options
